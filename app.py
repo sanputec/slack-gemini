@@ -1,3 +1,9 @@
+@app.before_request
+def log_all_requests():
+    import logging
+    logging.info(f"[REQ] {request.method} {request.path}")
+
+
 import os
 import logging
 from flask import Flask, request, jsonify
