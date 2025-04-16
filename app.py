@@ -19,7 +19,8 @@ def log_all_requests():
     logging.info(f"[REQ] {request.method} {request.path}")
 
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-model = genai.GenerativeModel("gemini-pro")
+model = genai.GenerativeModel("gemini-1.5-pro")  # ✅ 改成這行
+
 
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN")
 
