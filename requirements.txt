@@ -1,3 +1,4 @@
 Flask
 slack_sdk
+requests
 google-generativeai
