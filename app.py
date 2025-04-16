@@ -2,7 +2,7 @@ import os
 import json
 from flask import Flask, request, jsonify
 from memory import Memory
-from draw.py import generate_image
+from draw import generate_image
 import google.generativeai as genai
 
 app = Flask(__name__)
