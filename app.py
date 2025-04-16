@@ -1,9 +1,3 @@
-@app.before_request
-def log_all_requests():
-    import logging
-    logging.info(f"[REQ] {request.method} {request.path}")
-
-
 import os
 import logging
 from flask import Flask, request, jsonify
@@ -11,28 +5,41 @@ from memory import Memory
 from draw import generate_image
 import google.generativeai as genai
 
+# 初始化 Flask App 和記憶模組
 app = Flask(__name__)
 memory = Memory()
 
+# 設定 Log Level
 logging.basicConfig(level=logging.INFO)
 
+# ✅ 記錄所有進來的 HTTP 請求（協助除錯）
+@app.before_request
+def log_all_requests():
+    logging.info(f"[REQ] {request.method} {request.path}")
+
+# 設定 Gemini API 金鑰
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 model = genai.GenerativeModel("gemini-pro")
 
+# 取得 Slack Token
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN")
 
+# ✅ 健康檢查路由
 @app.route("/healthz", methods=["GET"])
 def health_check():
     return "OK", 200
 
+# ✅ Slack Events Webhook
 @app.route("/slack/events", methods=["POST"])
 def slack_events():
     data = request.get_json()
     logging.info(f"[EVENT] 收到 Slack events：{data}")
 
+    # Slack 驗證階段
     if "challenge" in data:
         return data["challenge"], 200, {"Content-Type": "text/plain"}
 
+    # 機器人被提及時
     event = data.get("event", {})
     if event.get("type") == "app_mention":
         user = event["user"]
@@ -54,6 +61,7 @@ def slack_events():
 
     return "", 200
 
+# ✅ Slash Command：/draw 與 /reset
 @app.route("/slack/commands", methods=["POST"])
 def slack_commands():
     command = request.form.get("command")
