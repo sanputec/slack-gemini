@@ -20,7 +20,7 @@ def log_all_requests():
     logging.info(f"[REQ] {request.method} {request.path}")
 
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-model = genai.GenerativeModel("gemini-1.5-pro")
+model = genai.GenerativeModel("gemini-1.5-flash")  # ⚠️ 改用 flash 避免速率限制
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN")
 
 @app.route("/healthz", methods=["GET"])
@@ -51,8 +51,6 @@ def slack_events():
         text = event["text"]
         channel = event["channel"]
         thread_ts = event.get("thread_ts", event["ts"])
-
-        client.chat_postMessage(channel=channel, text="💬 處理中，請稍等...", thread_ts=thread_ts)
         threading.Thread(target=handle_reply_async, args=(user, text, channel, thread_ts)).start()
 
     elif event_type == "message" and event.get("channel_type") == "im":
@@ -65,7 +63,6 @@ def slack_events():
             reply_text = "你好！有什麼可以幫忙的嗎？"
             client.chat_postMessage(channel=channel, text=reply_text)
         else:
-            client.chat_postMessage(channel=channel, text="💬 處理中，請稍等...")
             threading.Thread(target=handle_reply_async, args=(user, text, channel, None)).start()
 
     return "", 200
@@ -74,12 +71,17 @@ def handle_reply_async(user, text, channel, thread_ts=None):
     from slack_sdk import WebClient
     client = WebClient(token=os.getenv("SLACK_BOT_TOKEN"))
 
-    history = memory.get(user)
-    history.append({"role": "user", "parts": [text]})
-    response = model.generate_content(history)
-    memory.update(user, {"role": "model", "parts": [response.text]})
+    try:
+        history = memory.get(user)
+        history.append({"role": "user", "parts": [text]})
+        response = model.generate_content(history)
+        memory.update(user, {"role": "model", "parts": [response.text]})
+        reply = response.text
+    except Exception as e:
+        logging.exception("[ERROR] Gemini 回應錯誤")
+        reply = f"⚠️ Gemini 回覆失敗：{str(e)}"
 
-    client.chat_postMessage(channel=channel, text=response.text, thread_ts=thread_ts)
+    client.chat_postMessage(channel=channel, text=reply, thread_ts=thread_ts)
 
 @app.route("/slack/commands", methods=["POST"])
 def slack_commands():
