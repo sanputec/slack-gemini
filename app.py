@@ -20,7 +20,7 @@ def log_all_requests():
     logging.info(f"[REQ] {request.method} {request.path}")
 
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-model = genai.GenerativeModel("gemini-1.5-flash")  # ⚠️ 改用 flash 避免速率限制
+model = genai.GenerativeModel("gemini-1.5-flash")
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN")
 
 @app.route("/healthz", methods=["GET"])
@@ -39,10 +39,15 @@ def slack_events():
     event_id = data.get("event_id")
     event_type = event.get("type")
 
+    # 避免重複處理
     if event_id in seen_events:
         logging.info(f"[SKIP] 已處理過事件 {event_id}")
         return "", 200
     seen_events.add(event_id)
+
+    # 忽略來自 bot 自己的訊息
+    if event.get("bot_id"):
+        return "", 200
 
     client = WebClient(token=SLACK_BOT_TOKEN)
 
@@ -68,7 +73,6 @@ def slack_events():
     return "", 200
 
 def handle_reply_async(user, text, channel, thread_ts=None):
-    from slack_sdk import WebClient
     client = WebClient(token=os.getenv("SLACK_BOT_TOKEN"))
 
     try:
