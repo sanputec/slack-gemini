@@ -11,27 +11,38 @@ from slack_sdk import WebClient
 app = Flask(__name__)
 memory = Memory()
 seen_events = set()
+seen_events_lock = threading.Lock()
 greeted_users = set()
 
 logging.basicConfig(level=logging.INFO)
 
+# 日誌中記錄所有請求
 @app.before_request
 def log_all_requests():
     logging.info(f"[REQ] {request.method} {request.path}")
 
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-model = genai.GenerativeModel("gemini-1.5-flash")
-SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN")
+# 根路由避免 404
+@app.route("/", methods=["GET"])
+def root():
+    return "✅ Slack Gemini Bot is running!", 200
 
+# 健康檢查
 @app.route("/healthz", methods=["GET"])
 def health_check():
     return "OK", 200
+
+# 初始化 Gemini 模型與 Slack client
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+model = genai.GenerativeModel("gemini-1.5-flash")
+SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN")
+client = WebClient(token=SLACK_BOT_TOKEN)
 
 @app.route("/slack/events", methods=["POST"])
 def slack_events():
     data = request.get_json()
     logging.info(f"[EVENT] 收到 Slack events：{data}")
 
+    # Slack 驗證
     if "challenge" in data:
         return data["challenge"], 200, {"Content-Type": "text/plain"}
 
@@ -39,17 +50,16 @@ def slack_events():
     event_id = data.get("event_id")
     event_type = event.get("type")
 
-    # 避免重複處理
-    if event_id in seen_events:
-        logging.info(f"[SKIP] 已處理過事件 {event_id}")
-        return "", 200
-    seen_events.add(event_id)
+    # 避免重複處理事件
+    with seen_events_lock:
+        if event_id in seen_events:
+            logging.info(f"[SKIP] 已處理過事件 {event_id}")
+            return "", 200
+        seen_events.add(event_id)
 
-    # 忽略來自 bot 自己的訊息
+    # 忽略 bot 自己
     if event.get("bot_id"):
         return "", 200
-
-    client = WebClient(token=SLACK_BOT_TOKEN)
 
     if event_type == "app_mention":
         user = event["user"]
@@ -65,16 +75,13 @@ def slack_events():
 
         if user not in greeted_users:
             greeted_users.add(user)
-            reply_text = "你好！有什麼可以幫忙的嗎？"
-            client.chat_postMessage(channel=channel, text=reply_text)
+            client.chat_postMessage(channel=channel, text="你好！有什麼可以幫忙的嗎？")
         else:
             threading.Thread(target=handle_reply_async, args=(user, text, channel, None)).start()
 
     return "", 200
 
 def handle_reply_async(user, text, channel, thread_ts=None):
-    client = WebClient(token=os.getenv("SLACK_BOT_TOKEN"))
-
     try:
         history = memory.get(user)
         history.append({"role": "user", "parts": [text]})
@@ -107,9 +114,13 @@ def slack_commands():
     return jsonify({"text": "❌ 未知指令"})
 
 def handle_draw_async(prompt, response_url):
-    result = generate_image(prompt)
-    requests.post(response_url, json={"text": f"🎨 這是你要的圖：{result}"})
-
+    try:
+        result = generate_image(prompt)
+        requests.post(response_url, json={"text": f"🎨 這是你要的圖：{result}"})
+    except Exception as e:
+        logging.exception("[ERROR] 生成圖片失敗")
+        requests.post(response_url, json={"text": f"⚠️ 生成圖片失敗：{str(e)}"})
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
